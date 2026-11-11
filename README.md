@@ -29,6 +29,19 @@ python api_server.py
 ```
 Then visit http://localhost:5000
 
+### Train with Labeled Reviews
+```python
+from sentiment_analyzer import SentimentAnalyzer
+
+analyzer = SentimentAnalyzer()
+review_count = analyzer.train_from_file("test_reviews.txt")
+print(f"Trained on {review_count} reviews")
+print(analyzer.analyze_sentiment_advanced("The product is excellent!"))
+```
+The training file uses `Good:` and `Bad:` sections, with each review beginning
+with a star rating. This file contains only a few examples, so predictions may
+not generalize well.
+
 ## API Usage Example
 ```python
 import requests

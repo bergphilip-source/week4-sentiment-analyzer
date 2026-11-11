@@ -1,5 +1,6 @@
 # sentiment_analyzer.py
 from textblob import TextBlob
+from textblob.classifiers import NaiveBayesClassifier
 import pandas as pd
 import re
 from collections import Counter
@@ -9,6 +10,15 @@ nltk.download('stopwords', quiet=True)
 from nltk.corpus import stopwords
 import matplotlib.pyplot as plt
 
+
+def _word_presence_features(document):
+    """Return only words present in a review to avoid absence-driven predictions."""
+    return {
+        f'contains({word})': True
+        for word in set(re.findall(r'[a-z]+', document.lower()))
+    }
+
+
 class SentimentAnalyzer:
     """
     Analyzes sentiment in text reviews
@@ -17,6 +27,7 @@ class SentimentAnalyzer:
     
     def __init__(self):
         self.stop_words = set(stopwords.words('english'))
+        self.classifier = None
         self.positive_words = {'good', 'great', 'excellent', 'amazing', 'wonderful',
                                'fantastic', 'love', 'best', 'perfect', 'happy'}
         self.negative_words = {'bad', 'terrible', 'awful', 'horrible', 'worst',
@@ -40,6 +51,41 @@ class SentimentAnalyzer:
         words = [w for w in words if w not in self.stop_words]
         
         return words
+
+    def train_from_file(self, file_path):
+        """Train a sentiment classifier from Good/Bad review sections."""
+        with open(file_path, encoding='utf-8') as review_file:
+            content = review_file.read()
+
+        sections = re.split(r'(?m)^[ \t]*(Good|Bad):[ \t]*$', content)
+        training_data = []
+
+        for index in range(1, len(sections), 2):
+            label = 'Positive' if sections[index] == 'Good' else 'Negative'
+            section = sections[index + 1]
+            review_headers = list(re.finditer(
+                r'(?m)^[ \t]*[1-5](?:\.0)? out of 5 stars', section
+            ))
+
+            for review_index, header in enumerate(review_headers):
+                review_end = (review_headers[review_index + 1].start()
+                              if review_index + 1 < len(review_headers)
+                              else len(section))
+                review = section[header.end():review_end].strip()
+                if review:
+                    training_data.append((review, label))
+
+        if not training_data:
+            raise ValueError(
+                f"No labeled reviews found in {file_path!r}; expected Good/Bad "
+                "sections with star-rated reviews."
+            )
+
+        self.classifier = NaiveBayesClassifier(
+            training_data,
+            feature_extractor=_word_presence_features
+        )
+        return len(training_data)
     
     def analyze_sentiment_simple(self, text):
         """
@@ -71,9 +117,22 @@ class SentimentAnalyzer:
     
     def analyze_sentiment_advanced(self, text):
         """
-        Advanced sentiment using TextBlob library
-        This uses machine learning under the hood!
+        Advanced sentiment using TextBlob or the trained review classifier.
         """
+        if self.classifier is not None:
+            probabilities = self.classifier.prob_classify(text)
+            positive_probability = probabilities.prob('Positive')
+            negative_probability = probabilities.prob('Negative')
+            polarity = positive_probability - negative_probability
+            sentiment = 'Positive' if polarity >= 0 else 'Negative'
+
+            return {
+                'sentiment': sentiment,
+                'polarity': polarity,
+                'confidence': max(positive_probability, negative_probability) * 100,
+                'subjectivity': TextBlob(text).sentiment.subjectivity
+            }
+
         blob = TextBlob(text)
         
         # Get polarity score (-1 to 1)
